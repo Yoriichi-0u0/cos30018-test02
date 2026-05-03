@@ -22,10 +22,13 @@
 - Fixed auto buyer lock lifecycle so buyers lock only after dealer acceptance.
 - Ran an automated GUI smoke runner for Start JADE, Start Sniffer, Auto Demo, Market Report, and Manual Nego Platform.
 - Ran manual interaction smoke for 36-month counter, over-budget accept validation, and walk-away logging.
+- Improved dealer manual/auto decision logic with explicit accept/negotiate/reject outcomes.
+- Verified manual `Accept Dealer Offer` within budget closes a deal and updates Market Report.
+- Verified manual walk-away/refuse is logged by DealerAgent.
+- Verified over-budget manual counter/accept paths are blocked or logged clearly.
 
 ## In-Progress Tasks
 - Windows teammate verification on actual Windows remains in progress.
-- Final GitHub push remains pending until final status/commit is prepared.
 
 ## Remaining Tasks
 - Capture screenshots/video evidence for the report:
@@ -38,7 +41,7 @@
 - Explain the prediction formula in the report under `Implemented prediction algorithm/s`.
 - Explain the current strategy behavior/inference in the report under `Implemented negotiation strategies`.
 - Explain budget-fit alternative matching as a fallback after exact/spec matching.
-- Commit and push only intended source/docs changes.
+- Explain manual dealer decision thresholds for accept/negotiate/reject.
 
 ## Bugs To Verify
 - Manual negotiation should reject empty, non-number, over-budget, and invalid warranty inputs.
@@ -48,6 +51,7 @@
 - Windows users should see readable controls, labels, charts, tables, and text fields.
 - Confirm scroll behavior on smaller laptop screens and Windows display scaling.
 - Capture human screenshots/video for `Submit Counter`, `Accept Dealer Offer`, and `Walk Away`.
+- Consider adding a separate failed/walk-away KPI if the report needs numeric failure counts.
 
 ## Final Testing Checklist
 - Compile with JADE:
@@ -62,7 +66,11 @@
   - Manual Nego Platform.
   - Broker target car request logging.
   - Successful auto deals and ledger/market report activity.
+  - Manual over-budget counter validation.
+  - Manual reasonable counter negotiation.
+  - Manual over-budget accept validation.
+  - Manual walk-away/refuse logging.
+  - Manual accept-within-budget deal closure.
 - Manual remaining checks:
   - Confirm Prediction Advisor internal scroll by resizing the analytics area.
   - Check smaller and larger dashboard sizes.
-- Push only intended source/docs changes to GitHub.

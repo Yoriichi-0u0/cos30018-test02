@@ -63,6 +63,9 @@ protected void setup() {
     Object[] args = getArguments();
     if (args != null && args.length > 0) {
         isManualMode = Boolean.parseBoolean(args[0].toString());
+        if (args.length > 1) {
+            maxBudget = parseDoubleOrFallback(args[1].toString(), maxBudget);
+        }
     }
 
     // 1. Buyer picks a car they want to buy
@@ -297,6 +300,14 @@ private int clampWarranty(int months) {
 private int parseIntOrFallback(String value, int fallback) {
     try {
         return Integer.parseInt(value);
+    } catch (Exception ex) {
+        return fallback;
+    }
+}
+
+private double parseDoubleOrFallback(String value, double fallback) {
+    try {
+        return Double.parseDouble(value);
     } catch (Exception ex) {
         return fallback;
     }

@@ -92,6 +92,14 @@
 - Buyer lock fix:
   - Auto buyers no longer set `lockedIn` when they merely propose to buy.
   - `lockedIn` is set only after JADE `handleAcceptProposal`, while `BrokerAgent.securedBuyers` remains the final anti-double-buying guard.
+- Manual negotiation decision logic fix:
+  - `DealerAgent` now uses explicit `ACCEPT`, `NEGOTIATE`, and `REJECT` outcomes for buyer proposals.
+  - Acceptance considers buyer offer, current dealer ask, dealer reserve/min price, buyer warranty request, current dealer warranty, dealer max warranty, round number, and inferred dealer strategy.
+  - Dealer can accept below current ask only when the offer is strategically acceptable after reserve, round pressure, and warranty compensation are considered.
+  - Dealer rejects very low offers, impossible final-round warranty requests, locked buyers, and max-round failures.
+  - Dealer logs walk-away/refuse responses and updates the negotiation chart with the last known buyer/dealer state.
+  - `ManualUIFX` logs manual current-offer acceptance with the required wording.
+  - `BuyerAgent` supports an optional second startup argument for demo/test buyer budget overrides; normal UI buttons still use `src/config.properties`.
 
 ## Prediction Algorithm Explanation
 - The prediction model is rule-based and explainable, not machine learning.
@@ -156,6 +164,13 @@
   - Submitted a 36-month manual counter; dealer warranty moved gradually from 12mo to 16mo and logged the adjustment.
   - Tested over-budget `Accept Dealer Offer` validation.
   - Tested `Walk Away` logging.
+- Manual decision smoke runner passed locally:
+  - Submitted an over-budget manual counter first and then a reasonable RM115,000 / 36mo counter.
+  - Dealer responded with `NEGOTIATE`, gradually moving warranty from 6mo to 10mo and logging the counter.
+  - Over-budget `Accept Dealer Offer` stayed blocked and logged clearly.
+  - Walk-away sent `REFUSE`; dealer logged `[WALK AWAY]` and closed the negotiation without a deal.
+  - Spawned a high-budget manual buyer through the optional budget argument.
+  - `Accept Dealer Offer` within budget closed immediately, recorded a `WIN-WIN DEAL`, updated ledger/analytics, and appeared in Market Report.
 - Launch produced JavaFX native-access warnings from the current JDK, but the dashboard process started successfully.
 - GUI process was terminated after smoke testing.
 - Windows teammate visual/readability verification is still required on an actual Windows machine.
@@ -164,4 +179,5 @@
 - Dealer strategy is inferred from price movement because agents do not yet expose a named strategy profile.
 - Budget-fit alternatives are clearly logged when exact/spec vehicle matches are unavailable; this keeps the demo active but should be explained in the report.
 - Manual UI counter/accept/walk-away passed automated smoke interaction, but still needs human screenshots/video evidence for the report.
+- Failure/walk-away cases are logged and charted, but there is no separate failed-negotiation KPI card yet.
 - Windows display scaling/readability still needs teammate verification.

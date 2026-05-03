@@ -149,7 +149,7 @@ public static void spawnFloatingWindow(Agent agent, ACLMessage cfp, String carMo
             }
             sendOffer(agent, cfp, carModel, dealerPrice, dealerWarranty);
             responded[0] = true;
-            MainDashboardFX.getInstance().log(agent.getLocalName(), "[MANUAL] Accepted " + dealerName + "'s current offer: RM " + String.format("%,.2f", dealerPrice) + " w/ " + dealerWarranty + "mo");
+            MainDashboardFX.getInstance().log(agent.getLocalName(), "[MANUAL] Buyer accepted dealer current offer from " + dealerName + ": RM " + String.format("%,.2f", dealerPrice) + " w/ " + dealerWarranty + "mo");
             stage.close();
         });
 
