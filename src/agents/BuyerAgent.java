@@ -121,6 +121,9 @@ protected void setup() {
                     setupNegotiationResponder();
                 } else {
                     MainDashboardFX.getInstance().log(getLocalName(), "Broker said no cars are available within budget.");
+                    if (isManualMode) {
+                        ManualUIFX.showNoMatchWindow(getLocalName(), maxBudget);
+                    }
                 }
                 done = true;
             } else {

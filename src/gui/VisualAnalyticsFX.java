@@ -1,10 +1,13 @@
 package gui;
 
+import analytics.NegotiationPredictor;
 import javafx.application.Platform;
 import javafx.beans.property.SimpleStringProperty;
 import javafx.geometry.Insets;
 import javafx.scene.Node;
+import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
+import javafx.scene.control.ListCell;
 import javafx.scene.control.Tab;
 import javafx.scene.control.TabPane;
 import javafx.scene.control.TableColumn;
@@ -15,20 +18,29 @@ import javafx.scene.chart.CategoryAxis;
 import javafx.scene.chart.LineChart;
 import javafx.scene.chart.NumberAxis;
 import javafx.scene.chart.XYChart;
+import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
+import javafx.scene.paint.Color;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Properties;
 
 public class VisualAnalyticsFX extends VBox {
 
     private TabPane chartsContainer;
     private Map<String, LineChart<Number, Number>> activeCharts = new HashMap<>();
     private Map<String, XYChart.Series<Number, Number>[]> activeSeries = new HashMap<>();
+    private Map<String, NegotiationSnapshot> negotiationSnapshots = new HashMap<>();
 
     private BarChart<String, Number> marketChart;
     private TableView<String[]> ledgerTable;
+    private ComboBox<String> predictionSelector;
+    private Label predictionHintLabel;
+    private Map<String, Label> predictionValueLabels = new HashMap<>();
+    private double defaultBuyerBudget = readConfigDouble("buyer.default_budget", 118000.0);
+    private double dealerReservePrice = readConfigDouble("dealer.min_price", 105000.0);
 
     // NEW: Centralized Color Dictionary for UI Syncing
     private final String[] PALETTE = {"#4daafc", "#ff6b81", "#fbc02d", "#2e7d32", "#9c27b0", "#ff9800", "#00bcd4"};
@@ -51,6 +63,8 @@ public class VisualAnalyticsFX extends VBox {
 
         // 1. Setup the Negotiation Tabs (Right Side)
         chartsContainer = new TabPane();
+        chartsContainer.setMinWidth(520);
+        chartsContainer.setMinHeight(340);
         chartsContainer.setStyle("-fx-background-color: transparent;");
 
         // 2. Setup the Fixed Ledger (Left Side)
@@ -59,18 +73,20 @@ public class VisualAnalyticsFX extends VBox {
 
         // NEW UI ARCHITECTURE: Split the top half horizontally
         HBox topSection = new HBox(15);
+        topSection.setMinHeight(360);
         VBox.setVgrow(topSection, Priority.ALWAYS);
 
         // Put the Ledger in a styled container so it looks native
         VBox ledgerBox = new VBox(5);
-        Label ledgerTitle = new Label("🏆 OFFICIAL LEDGER");
+        Label ledgerTitle = new Label("Official Deal Ledger");
         ledgerTitle.setStyle("-fx-text-fill: #a0a0ab; -fx-font-weight: bold; -fx-font-size: 14px;");
         VBox.setVgrow(ledgerTable, Priority.ALWAYS);
-        ledgerBox.getChildren().addAll(ledgerTitle, ledgerTable);
+        VBox predictionPanel = createPredictionPanel();
+        ledgerBox.getChildren().addAll(ledgerTitle, ledgerTable, predictionPanel);
         
         // Give the ledger a fixed footprint, give the tabs the rest of the screen
-        ledgerBox.setMinWidth(650);
-        ledgerBox.setPrefWidth(650); 
+        ledgerBox.setMinWidth(620);
+        ledgerBox.setPrefWidth(620);
         HBox.setHgrow(chartsContainer, Priority.ALWAYS);
 
         // Mount them side-by-side!
@@ -81,9 +97,85 @@ public class VisualAnalyticsFX extends VBox {
         Platform.runLater(this::applyMarketAesthetic);
     }
 
+    private VBox createPredictionPanel() {
+        VBox panel = new VBox(8);
+        panel.setPadding(new Insets(12));
+        panel.setMinHeight(240);
+        panel.setStyle("-fx-background-color: #202027; -fx-border-color: #3b3b4a; -fx-border-radius: 8px; -fx-background-radius: 8px;");
+
+        Label title = new Label("Prediction Advisor");
+        title.setStyle("-fx-text-fill: #fbc02d; -fx-font-size: 15px; -fx-font-weight: bold;");
+
+        predictionSelector = new ComboBox<>();
+        predictionSelector.setMaxWidth(Double.MAX_VALUE);
+        predictionSelector.getItems().add("No negotiation data yet");
+        predictionSelector.getSelectionModel().selectFirst();
+        styleComboBox(predictionSelector);
+        predictionSelector.setOnAction(e -> refreshPredictionAdvisor());
+
+        predictionHintLabel = new Label("Run a demo lineup or start a negotiation to generate predictions.");
+        predictionHintLabel.setWrapText(true);
+        predictionHintLabel.setStyle("-fx-text-fill: #a0a0ab; -fx-font-size: 12px;");
+
+        GridPane grid = new GridPane();
+        grid.setHgap(10);
+        grid.setVgap(4);
+        addPredictionRow(grid, 0, "Buyer", "buyer");
+        addPredictionRow(grid, 1, "Dealer", "dealer");
+        addPredictionRow(grid, 2, "Vehicle", "vehicle");
+        addPredictionRow(grid, 3, "Buyer offer", "buyerOffer");
+        addPredictionRow(grid, 4, "Dealer ask", "dealerAsk");
+        addPredictionRow(grid, 5, "Acceptance", "acceptance");
+        addPredictionRow(grid, 6, "Predicted price", "predictedPrice");
+        addPredictionRow(grid, 7, "Warranty", "warranty");
+        addPredictionRow(grid, 8, "Action", "action");
+        addPredictionRow(grid, 9, "Recommended dealer", "recommendedDealer");
+        addPredictionRow(grid, 10, "Strategy", "strategy");
+
+        panel.getChildren().addAll(title, predictionSelector, predictionHintLabel, grid);
+        return panel;
+    }
+
+    private void addPredictionRow(GridPane grid, int row, String labelText, String key) {
+        Label label = new Label(labelText + ":");
+        label.setStyle("-fx-text-fill: #a0a0ab; -fx-font-size: 12px;");
+        Label value = new Label("-");
+        value.setWrapText(true);
+        value.setStyle("-fx-text-fill: white; -fx-font-size: 12px; -fx-font-weight: bold;");
+        predictionValueLabels.put(key, value);
+        grid.add(label, 0, row);
+        grid.add(value, 1, row);
+    }
+
+    private void styleComboBox(ComboBox<String> comboBox) {
+        comboBox.setStyle("-fx-background-color: #111116; -fx-border-color: #555566; -fx-border-radius: 4px; -fx-background-radius: 4px; -fx-font-size: 12px;");
+        comboBox.setButtonCell(new ListCell<String>() {
+            @Override
+            protected void updateItem(String item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? "" : item);
+                setTextFill(Color.WHITE);
+                setStyle("-fx-background-color: #111116; -fx-text-fill: white;");
+            }
+        });
+        comboBox.setCellFactory(list -> new ListCell<String>() {
+            @Override
+            protected void updateItem(String item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? "" : item);
+                setTextFill(empty ? Color.TRANSPARENT : Color.WHITE);
+                setStyle(empty
+                        ? "-fx-background-color: #111116;"
+                        : "-fx-background-color: #202027; -fx-text-fill: white; -fx-padding: 6px;");
+            }
+        });
+    }
+
     private void setupLedgerPanel() {
         ledgerTable = new TableView<>();
-        ledgerTable.setStyle("-fx-background-color: #16161a; -fx-control-inner-background: #2a2a35; -fx-table-cell-border-color: #3b3b4a;");
+        ledgerTable.setStyle("-fx-background-color: #16161a; -fx-control-inner-background: #2a2a35; "
+                + "-fx-control-inner-background-alt: #242430; -fx-table-cell-border-color: #3b3b4a; "
+                + "-fx-text-fill: white; -fx-selection-bar: #00838f; -fx-selection-bar-non-focused: #35515a;");
 
         TableColumn<String[], String> buyerCol = new TableColumn<>("Buyer Name");
         buyerCol.setPrefWidth(120);
@@ -111,6 +203,7 @@ public class VisualAnalyticsFX extends VBox {
         ledgerTable.setRowFactory(tv -> {
             javafx.scene.control.TableRow<String[]> row = new javafx.scene.control.TableRow<>();
             Tooltip tooltip = new Tooltip();
+            row.setStyle("-fx-background-color: #2a2a35; -fx-text-background-color: white;");
 
             row.itemProperty().addListener((obs, oldItem, newItem) -> {
                 if (newItem != null) {
@@ -140,6 +233,10 @@ public class VisualAnalyticsFX extends VBox {
                         chartsContainer.getSelectionModel().select(tab);
                         break; // Stop searching once we find it
                     }
+                }
+                if (predictionSelector != null && predictionSelector.getItems().contains(targetTabTitle)) {
+                    predictionSelector.getSelectionModel().select(targetTabTitle);
+                    refreshPredictionAdvisor();
                 }
             }
         });
@@ -201,6 +298,7 @@ public class VisualAnalyticsFX extends VBox {
 
         marketChart = new BarChart<>(xAxis, yAxis);
         marketChart.setTitle("Live Market Analytics");
+        marketChart.setMinHeight(230);
         marketChart.setLegendVisible(false);
         marketChart.setAnimated(false);
         marketChart.setStyle("-fx-background-color: #16161a;");
@@ -258,6 +356,7 @@ public class VisualAnalyticsFX extends VBox {
             seriesPair[0].getData().add(bData);
             seriesPair[1].getData().add(dData);
 
+            updatePredictionSnapshot(sessionKey, buyer, dealer, carModel, round, buyerOffer, dealerAsk, buyerWarranty, dealerWarranty, isDeal);
             applyWidgetAesthetic(activeCharts.get(sessionKey));
         });
     }
@@ -280,6 +379,165 @@ public class VisualAnalyticsFX extends VBox {
                 });
             }
         });
+    }
+
+    private void updatePredictionSnapshot(String sessionKey, String buyer, String dealer, String carModel,
+                                          int round, double buyerOffer, double dealerAsk,
+                                          int buyerWarranty, int dealerWarranty, boolean dealClosed) {
+        NegotiationSnapshot snapshot = negotiationSnapshots.get(sessionKey);
+        if (snapshot == null) {
+            snapshot = new NegotiationSnapshot(buyer, dealer, carModel, buyerOffer, dealerAsk);
+            negotiationSnapshots.put(sessionKey, snapshot);
+        }
+
+        snapshot.carModel = carModel;
+        snapshot.round = round;
+        snapshot.buyerOffer = buyerOffer;
+        snapshot.dealerAsk = dealerAsk;
+        snapshot.buyerWarranty = buyerWarranty;
+        snapshot.dealerWarranty = dealerWarranty;
+        snapshot.dealClosed = dealClosed;
+        snapshot.inferredStrategy = NegotiationPredictor.inferDealerStrategy(
+                round,
+                snapshot.firstDealerAsk,
+                dealerAsk,
+                snapshot.firstBuyerOffer,
+                buyerOffer
+        );
+
+        if (predictionSelector != null) {
+            if (predictionSelector.getItems().size() == 1
+                    && "No negotiation data yet".equals(predictionSelector.getItems().get(0))) {
+                predictionSelector.getItems().clear();
+            }
+            if (!predictionSelector.getItems().contains(sessionKey)) {
+                predictionSelector.getItems().add(sessionKey);
+            }
+            if (predictionSelector.getSelectionModel().getSelectedItem() == null
+                    || "No negotiation data yet".equals(predictionSelector.getSelectionModel().getSelectedItem())) {
+                predictionSelector.getSelectionModel().select(sessionKey);
+            }
+            if (sessionKey.equals(predictionSelector.getSelectionModel().getSelectedItem())) {
+                refreshPredictionAdvisor();
+            }
+        }
+    }
+
+    private void refreshPredictionAdvisor() {
+        if (predictionSelector == null) {
+            return;
+        }
+        String selected = predictionSelector.getSelectionModel().getSelectedItem();
+        NegotiationSnapshot snapshot = selected == null ? null : negotiationSnapshots.get(selected);
+        if (snapshot == null) {
+            predictionHintLabel.setText("Run a demo lineup or start a negotiation to generate predictions.");
+            setPredictionValue("buyer", "-");
+            setPredictionValue("dealer", "-");
+            setPredictionValue("vehicle", "-");
+            setPredictionValue("buyerOffer", "-");
+            setPredictionValue("dealerAsk", "-");
+            setPredictionValue("acceptance", "-");
+            setPredictionValue("predictedPrice", "-");
+            setPredictionValue("warranty", "-");
+            setPredictionValue("action", "-");
+            setPredictionValue("recommendedDealer", "-");
+            setPredictionValue("strategy", "-");
+            return;
+        }
+
+        NegotiationPredictor.Result result = predictFor(snapshot);
+        setPredictionValue("buyer", snapshot.buyer);
+        setPredictionValue("dealer", snapshot.dealer);
+        setPredictionValue("vehicle", snapshot.carModel);
+        setPredictionValue("buyerOffer", currency(snapshot.buyerOffer) + " / " + snapshot.buyerWarranty + "mo");
+        setPredictionValue("dealerAsk", currency(snapshot.dealerAsk) + " / " + snapshot.dealerWarranty + "mo");
+        setPredictionValue("acceptance", String.format("%.0f%%", result.acceptanceProbabilityPercent));
+        setPredictionValue("predictedPrice", currency(result.predictedFinalPrice));
+        setPredictionValue("warranty", result.predictedWarrantyMonths + "mo predicted");
+        setPredictionValue("action", result.recommendedAction);
+        setPredictionValue("recommendedDealer", recommendedDealerFor(snapshot.buyer));
+        setPredictionValue("strategy", result.dealerStrategy + " (" + result.remainingRounds + " rounds left)");
+        predictionHintLabel.setText(result.explanation);
+    }
+
+    private NegotiationPredictor.Result predictFor(NegotiationSnapshot snapshot) {
+        double budget = Math.max(defaultBuyerBudget, snapshot.buyerOffer);
+        double historicalAverage = historicalAverageForCar(snapshot.carModel);
+        NegotiationPredictor.Input input = new NegotiationPredictor.Input(
+                snapshot.buyer,
+                snapshot.dealer,
+                snapshot.carModel,
+                budget,
+                snapshot.buyerOffer,
+                snapshot.dealerAsk,
+                dealerReservePrice,
+                snapshot.buyerWarranty,
+                snapshot.dealerWarranty,
+                snapshot.round,
+                NegotiationPredictor.DEFAULT_MAX_ROUNDS,
+                snapshot.inferredStrategy,
+                historicalAverage
+        );
+        return NegotiationPredictor.predict(input);
+    }
+
+    private String recommendedDealerFor(String buyer) {
+        String bestDealer = "-";
+        double bestScore = Double.NEGATIVE_INFINITY;
+        for (NegotiationSnapshot candidate : negotiationSnapshots.values()) {
+            if (!buyer.equals(candidate.buyer)) {
+                continue;
+            }
+            NegotiationPredictor.Result result = predictFor(candidate);
+            if (result.recommendationScore > bestScore) {
+                bestScore = result.recommendationScore;
+                bestDealer = candidate.dealer + " (" + String.format("%.0f%%", result.acceptanceProbabilityPercent) + ")";
+            }
+        }
+        return bestDealer;
+    }
+
+    private double historicalAverageForCar(String carModel) {
+        if (ledgerTable == null || ledgerTable.getItems().isEmpty()) {
+            return Double.NaN;
+        }
+        double total = 0.0;
+        int count = 0;
+        for (String[] row : ledgerTable.getItems()) {
+            if (row.length >= 4 && carModel.equals(row[2])) {
+                double value = parseCurrency(row[3]);
+                if (!Double.isNaN(value)) {
+                    total += value;
+                    count++;
+                }
+            }
+        }
+        return count == 0 ? Double.NaN : total / count;
+    }
+
+    private void setPredictionValue(String key, String value) {
+        Label label = predictionValueLabels.get(key);
+        if (label != null) {
+            label.setText(value);
+        }
+    }
+
+    private static double parseCurrency(String value) {
+        if (value == null) {
+            return Double.NaN;
+        }
+        try {
+            return Double.parseDouble(value.replace("RM", "").replace(",", "").trim());
+        } catch (NumberFormatException ex) {
+            return Double.NaN;
+        }
+    }
+
+    private static String currency(double value) {
+        if (Double.isNaN(value) || Double.isInfinite(value)) {
+            return "-";
+        }
+        return String.format("RM %,.2f", value);
     }
 
     // NEW: Method to render the live market data with vibrant, distinct colors
@@ -332,6 +590,7 @@ public class VisualAnalyticsFX extends VBox {
             String priceStr = String.format("RM %,.2f", price);
             String warrantyStr = warranty + " Months";
             ledgerTable.getItems().add(new String[]{buyer, dealer, carModel, priceStr, warrantyStr});
+            refreshPredictionAdvisor();
         });
     }
 
@@ -341,9 +600,15 @@ public class VisualAnalyticsFX extends VBox {
             chartsContainer.getTabs().clear();
             activeCharts.clear();
             activeSeries.clear();
+            negotiationSnapshots.clear();
             
             ledgerTable.getItems().clear();
             marketChart.getData().clear(); 
+            if (predictionSelector != null) {
+                predictionSelector.getItems().setAll("No negotiation data yet");
+                predictionSelector.getSelectionModel().selectFirst();
+            }
+            refreshPredictionAdvisor();
             
             // Note: We deliberately do NOT clear the carColorMap so colors stay consistent across resets
         });
@@ -377,6 +642,40 @@ public class VisualAnalyticsFX extends VBox {
                 i++;
             }
             for (Node label : legend.lookupAll(".chart-legend-item")) label.setStyle("-fx-text-fill: #a0a0ab;");
+        }
+    }
+
+    private static double readConfigDouble(String key, double fallback) {
+        Properties props = new Properties();
+        try (java.io.FileInputStream in = new java.io.FileInputStream("src/config.properties")) {
+            props.load(in);
+            return Double.parseDouble(props.getProperty(key, String.valueOf(fallback)));
+        } catch (Exception ex) {
+            return fallback;
+        }
+    }
+
+    private static final class NegotiationSnapshot {
+        private final String buyer;
+        private final String dealer;
+        private final double firstBuyerOffer;
+        private final double firstDealerAsk;
+        private String carModel;
+        private int round;
+        private double buyerOffer;
+        private double dealerAsk;
+        private int buyerWarranty;
+        private int dealerWarranty;
+        private boolean dealClosed;
+        private String inferredStrategy = "Matcher";
+
+        private NegotiationSnapshot(String buyer, String dealer, String carModel,
+                                    double firstBuyerOffer, double firstDealerAsk) {
+            this.buyer = buyer;
+            this.dealer = dealer;
+            this.carModel = carModel;
+            this.firstBuyerOffer = firstBuyerOffer;
+            this.firstDealerAsk = firstDealerAsk;
         }
     }
 }
