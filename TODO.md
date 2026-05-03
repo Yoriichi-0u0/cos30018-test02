@@ -13,6 +13,15 @@
 - Added scroll panes for the top controls, analytics area, and manual negotiation window.
 - Verified compile.
 - Verified GUI launch smoke check.
+- Fixed Prediction Advisor row clipping with an internal scroll pane.
+- Fixed dynamic negotiation chart y-axis scaling.
+- Fixed dealer warranty negotiation to move gradually and cap at dealer max warranty.
+- Fixed buyer warranty negotiation so demand does not fall below minimum acceptable warranty.
+- Fixed broker matching to include buyer target vehicle specification plus budget.
+- Fixed manual prediction to use round and inferred strategy from the active CFP.
+- Fixed auto buyer lock lifecycle so buyers lock only after dealer acceptance.
+- Ran an automated GUI smoke runner for Start JADE, Start Sniffer, Auto Demo, Market Report, and Manual Nego Platform.
+- Ran manual interaction smoke for 36-month counter, over-budget accept validation, and walk-away logging.
 
 ## In-Progress Tasks
 - Windows teammate verification on actual Windows remains in progress.
@@ -28,6 +37,7 @@
   - Ledger and market report after successful deals.
 - Explain the prediction formula in the report under `Implemented prediction algorithm/s`.
 - Explain the current strategy behavior/inference in the report under `Implemented negotiation strategies`.
+- Explain budget-fit alternative matching as a fallback after exact/spec matching.
 - Commit and push only intended source/docs changes.
 
 ## Bugs To Verify
@@ -37,19 +47,22 @@
 - Auto Spawn should keep the current dashboard view and not interrupt further setup.
 - Windows users should see readable controls, labels, charts, tables, and text fields.
 - Confirm scroll behavior on smaller laptop screens and Windows display scaling.
+- Capture human screenshots/video for `Submit Counter`, `Accept Dealer Offer`, and `Walk Away`.
 
 ## Final Testing Checklist
 - Compile with JADE:
   - `javac -cp src/lib/jade.jar -d out/test-compile $(find src -name '*.java')`
 - Launch `gui.MainDashboardFX`.
   - `java -cp out/test-compile:src/lib/jade.jar gui.MainDashboardFX`
-- Start JADE Platform.
-- Run Auto Spawn.
-- Confirm broker receives dealer listings.
-- Confirm buyers receive up to three matching dealers.
-- Confirm automated negotiation produces live log and analytics updates.
-- Confirm manual negotiation window appears and sends valid counter/walk-away messages.
-- Confirm prediction advisor updates after negotiations.
-- Confirm ledger and market report still work.
-- Check smaller and larger dashboard sizes.
+- Automated smoke passed locally for:
+  - Start JADE Platform.
+  - Start Sniffer.
+  - Run Auto Demo.
+  - Market Report.
+  - Manual Nego Platform.
+  - Broker target car request logging.
+  - Successful auto deals and ledger/market report activity.
+- Manual remaining checks:
+  - Confirm Prediction Advisor internal scroll by resizing the analytics area.
+  - Check smaller and larger dashboard sizes.
 - Push only intended source/docs changes to GitHub.

@@ -25,10 +25,12 @@ public class ManualUIFX {
 private static int windowOffset = 0; 
 
 // NEW: Asynchronous floating window method including car model
-public static void spawnFloatingWindow(Agent agent, ACLMessage cfp, String carModel, double dealerPrice, int dealerWarranty, double maxBudget) {
+public static void spawnFloatingWindow(Agent agent, ACLMessage cfp, String carModel, double dealerPrice, int dealerWarranty, double maxBudget, int round, String strategyLabel) {
     Platform.runLater(() -> {
         Stage stage = new Stage();
         String dealerName = cfp.getSender().getLocalName();
+        int currentRound = Math.max(1, round);
+        String predictionStrategy = strategyLabel == null || strategyLabel.trim().isEmpty() ? "Inferred Matcher" : strategyLabel.trim();
         final boolean[] responded = {false};
         stage.setTitle("Manual Negotiation: " + dealerName);
 
@@ -45,8 +47,8 @@ public static void spawnFloatingWindow(Agent agent, ACLMessage cfp, String carMo
         dealerHeader.setStyle("-fx-text-fill: #4daafc; -fx-font-size: 14px; -fx-font-weight: bold;");
         
         // DISPLAY: Car Model, Price, and Warranty
-        Label infoLabel = new Label(String.format("%s asks:\nCar: %s\nRM %,.2f w/ %dmo warranty", 
-                                    dealerName, carModel, dealerPrice, dealerWarranty));
+        Label infoLabel = new Label(String.format("%s asks:\nCar: %s\nRound: %d\nRM %,.2f w/ %dmo warranty",
+                                    dealerName, carModel, currentRound, dealerPrice, dealerWarranty));
         infoLabel.setStyle("-fx-text-fill: white; -fx-font-size: 15px;");
         infoLabel.setWrapText(true);
 
@@ -106,17 +108,18 @@ public static void spawnFloatingWindow(Agent agent, ACLMessage cfp, String carMo
                     readConfigDouble("dealer.min_price", 105000.0),
                     requestedWarranty,
                     dealerWarranty,
-                    1,
+                    currentRound,
                     NegotiationPredictor.DEFAULT_MAX_ROUNDS,
-                    "Matcher",
+                    predictionStrategy,
                     Double.NaN
             ));
             predictionLabel.setText(String.format(
-                    "Acceptance chance: %.0f%%\nPredicted final price: RM %,.2f\nPredicted warranty: %dmo\nRecommended action: %s\nReason: %s",
+                    "Acceptance chance: %.0f%%\nPredicted final price: RM %,.2f\nPredicted warranty: %dmo\nRecommended action: %s\nStrategy estimate: %s\nReason: %s",
                     result.acceptanceProbabilityPercent,
                     result.predictedFinalPrice,
                     result.predictedWarrantyMonths,
                     result.recommendedAction,
+                    predictionStrategy,
                     result.explanation
             ));
         };

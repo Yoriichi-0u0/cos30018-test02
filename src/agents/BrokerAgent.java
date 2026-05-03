@@ -74,19 +74,34 @@ public class BrokerAgent extends Agent {
                         MainDashboardFX.getInstance().log("BROKER", "Cataloged " + msg.getSender().getLocalName() + " selling " + parts[0] + " at RM " + parts[1]);
                         
                     } else if ("find-dealers".equals(ontology)) {
-                        // Buyer sends their budget: e.g., "118000.0"
-                        double buyerBudget = Double.parseDouble(msg.getContent());
+                        BuyerRequest request = parseBuyerRequest(msg.getContent());
+                        double buyerBudget = request.budget;
                         List<String> shortlist = new ArrayList<>();
+                        List<String> budgetAlternatives = new ArrayList<>();
+
+                        MainDashboardFX.getInstance().log("BROKER", String.format("%s requested %s with budget RM%,.2f.",
+                                msg.getSender().getLocalName(), request.targetCar, buyerBudget));
                         
-                        // BROKER REASONING LOGIC: Find cars near the budget
+                        // BROKER REASONING LOGIC: match car specification first, then budget.
                         for (Map.Entry<AID, String> entry : inventoryCatalog.entrySet()) {
                             String[] parts = entry.getValue().split(",");
+                            String dealerCar = parts[0];
                             double dealerAskingPrice = Double.parseDouble(parts[1]);
                             
-                            // If the dealer's price is within RM 10,000 of the buyer's budget, they can negotiate!
-                            if (dealerAskingPrice <= buyerBudget + 10000) {
+                            if (dealerAskingPrice <= buyerBudget + 10000 && carMatches(request.targetCar, dealerCar)) {
                                 shortlist.add(entry.getKey().getLocalName());
                                 if (shortlist.size() >= 3) break; // Cap at 3 dealers
+                            } else if (dealerAskingPrice <= buyerBudget + 10000 && isReasonableAlternative(request.targetCar, dealerCar)) {
+                                budgetAlternatives.add(entry.getKey().getLocalName());
+                            }
+                        }
+
+                        boolean usedAlternativeMatches = false;
+                        if (shortlist.isEmpty() && !budgetAlternatives.isEmpty()) {
+                            usedAlternativeMatches = true;
+                            for (String dealerName : budgetAlternatives) {
+                                shortlist.add(dealerName);
+                                if (shortlist.size() >= 3) break;
                             }
                         }
                         
@@ -96,10 +111,17 @@ public class BrokerAgent extends Agent {
                         
                         if (!shortlist.isEmpty()) {
                             reply.setContent(String.join(",", shortlist));
-                            MainDashboardFX.getInstance().log("BROKER", String.format("Found %d dealers matching RM %,.2f budget for %s", 
-                                                                        shortlist.size(), buyerBudget, msg.getSender().getLocalName()));
+                            if (usedAlternativeMatches) {
+                                MainDashboardFX.getInstance().log("BROKER", String.format("No exact listing for %s. Offered %d budget-fit alternative dealer(s).",
+                                        request.targetCar, shortlist.size()));
+                            } else {
+                                MainDashboardFX.getInstance().log("BROKER", String.format("Matched %d dealer(s) for %s within RM%,.2f budget.",
+                                        shortlist.size(), request.targetCar, buyerBudget));
+                            }
                         } else {
                             reply.setContent("NONE");
+                            MainDashboardFX.getInstance().log("BROKER", String.format("No dealer matched %s within RM%,.2f budget.",
+                                    request.targetCar, buyerBudget));
                         }
                         myAgent.send(reply);
                         
@@ -182,5 +204,74 @@ public class BrokerAgent extends Agent {
         report.append(String.format("\nTotal Broker Earnings: RM %,.2f", totalFees + totalCommission));
         report.append("\n=============================================");
         MainDashboardFX.getInstance().log("BROKER", report.toString());
+    }
+
+    private BuyerRequest parseBuyerRequest(String content) {
+        if (content == null || content.trim().isEmpty()) {
+            return new BuyerRequest("Any vehicle", 0.0);
+        }
+        if (content.contains("|")) {
+            String[] parts = content.split("\\|", 2);
+            return new BuyerRequest(parts[0].trim(), parseDouble(parts[1], 0.0));
+        }
+        return new BuyerRequest("Any vehicle", parseDouble(content, 0.0));
+    }
+
+    private boolean carMatches(String requestedCar, String dealerCar) {
+        String request = normalize(requestedCar);
+        String listing = normalize(dealerCar);
+        if (request.isEmpty() || "any vehicle".equals(request)) {
+            return true;
+        }
+        return listing.contains(request) || request.contains(listing) || sharedKeywords(request, listing) >= 3;
+    }
+
+    private boolean isReasonableAlternative(String requestedCar, String dealerCar) {
+        String request = normalize(requestedCar);
+        String listing = normalize(dealerCar);
+        if (request.isEmpty() || "any vehicle".equals(request)) {
+            return true;
+        }
+        String[] requestTokens = request.split(" ");
+        String[] listingTokens = listing.split(" ");
+        if (requestTokens.length > 1 && listingTokens.length > 1 && requestTokens[1].equals(listingTokens[1])) {
+            return true;
+        }
+        return true;
+    }
+
+    private int sharedKeywords(String request, String listing) {
+        int matches = 0;
+        for (String token : request.split(" ")) {
+            if (token.length() > 1 && listing.contains(token)) {
+                matches++;
+            }
+        }
+        return matches;
+    }
+
+    private String normalize(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.toLowerCase().replaceAll("[^a-z0-9 ]", " ").replaceAll("\\s+", " ").trim();
+    }
+
+    private double parseDouble(String value, double fallback) {
+        try {
+            return Double.parseDouble(value.trim());
+        } catch (Exception ex) {
+            return fallback;
+        }
+    }
+
+    private static final class BuyerRequest {
+        private final String targetCar;
+        private final double budget;
+
+        private BuyerRequest(String targetCar, double budget) {
+            this.targetCar = targetCar == null || targetCar.trim().isEmpty() ? "Any vehicle" : targetCar;
+            this.budget = budget;
+        }
     }
 }

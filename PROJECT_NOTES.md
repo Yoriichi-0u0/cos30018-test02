@@ -68,6 +68,31 @@
   - Wrapped analytics content in a scroll pane.
   - Changed the window title to `COS30018 Broker Exchange - JavaFX`.
 
+## Latest Fixes
+- Prediction Advisor scroll fix:
+  - `src/gui/VisualAnalyticsFX.java` now keeps the advisor shell compact and places prediction rows inside an internal `ScrollPane`.
+  - The existing analytics-level scroll pane remains in `MainDashboardFX`, so smaller height windows can scroll both the whole analytics area and the prediction rows.
+- Dynamic negotiation chart scaling:
+  - Negotiation chart y-axis bounds now adjust per buyer/dealer session from observed buyer offers and dealer asks.
+  - The old fixed RM90,000-RM135,000 range was removed so cheaper and more expensive vehicles remain readable.
+- Warranty negotiation fix:
+  - `src/agents/DealerAgent.java` now moves warranty gradually toward the buyer request by 2-4 months per counter.
+  - Dealer warranty is capped at the dealer's max warranty threshold and clamped to 0-72 months.
+  - Warranty surcharge is charged only for the additional warranty months actually added in that round.
+  - Dealer no longer blindly increases warranty when the current warranty already satisfies the buyer request.
+  - `src/agents/BuyerAgent.java` now reduces warranty demand gradually only when needed and never below the buyer's minimum acceptable warranty.
+- Broker car-spec matching fix:
+  - `BuyerAgent` sends the target vehicle and budget to `BrokerAgent` as `targetCar|budget`.
+  - `BrokerAgent` logs the requested vehicle, matches exact/spec keywords first, and only then offers clearly logged budget-fit alternatives.
+  - Broker still limits each buyer to at most three dealers.
+- Manual prediction fix:
+  - `DealerAgent` stamps CFP messages with negotiation round and inferred dealer strategy.
+  - `BuyerAgent` passes those values into `ManualUIFX`.
+  - `ManualUIFX` now predicts using the actual dealer, car, current buyer counter, dealer ask, requested warranty, dealer warranty, current round, and inferred strategy label.
+- Buyer lock fix:
+  - Auto buyers no longer set `lockedIn` when they merely propose to buy.
+  - `lockedIn` is set only after JADE `handleAcceptProposal`, while `BrokerAgent.securedBuyers` remains the final anti-double-buying guard.
+
 ## Prediction Algorithm Explanation
 - The prediction model is rule-based and explainable, not machine learning.
 - Inputs used:
@@ -108,7 +133,9 @@
 - `PROJECT_NOTES.md`
 - `TODO.md`
 - `src/analytics/NegotiationPredictor.java`
+- `src/agents/BrokerAgent.java`
 - `src/agents/BuyerAgent.java`
+- `src/agents/DealerAgent.java`
 - `src/gui/MainDashboardFX.java`
 - `src/gui/ManualUIFX.java`
 - `src/gui/VisualAnalyticsFX.java`
@@ -118,6 +145,23 @@
   - `javac -cp src/lib/jade.jar -d out/test-compile $(find src -name '*.java')`
 - Launch smoke check passed:
   - `java -cp out/test-compile:src/lib/jade.jar gui.MainDashboardFX`
+- Automated GUI smoke runner passed locally:
+  - Started JADE Platform.
+  - Started Sniffer.
+  - Ran Auto Demo.
+  - Opened Market Report.
+  - Spawned Manual Nego Platform.
+  - Logs showed broker vehicle requests, budget-fit alternatives, successful deals, market report totals, and buyer lock after dealer acceptance.
+  - Manual smoke interaction found 3 manual negotiation windows.
+  - Submitted a 36-month manual counter; dealer warranty moved gradually from 12mo to 16mo and logged the adjustment.
+  - Tested over-budget `Accept Dealer Offer` validation.
+  - Tested `Walk Away` logging.
 - Launch produced JavaFX native-access warnings from the current JDK, but the dashboard process started successfully.
 - GUI process was terminated after smoke testing.
 - Windows teammate visual/readability verification is still required on an actual Windows machine.
+
+## Known Limitations
+- Dealer strategy is inferred from price movement because agents do not yet expose a named strategy profile.
+- Budget-fit alternatives are clearly logged when exact/spec vehicle matches are unavailable; this keeps the demo active but should be explained in the report.
+- Manual UI counter/accept/walk-away passed automated smoke interaction, but still needs human screenshots/video evidence for the report.
+- Windows display scaling/readability still needs teammate verification.

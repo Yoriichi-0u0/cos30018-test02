@@ -1,5 +1,7 @@
 package agents;
 
+import analytics.NegotiationPredictor;
+
 // 1. GUI Imports
 import gui.MainDashboardFX;
 
@@ -31,6 +33,8 @@ public class DealerAgent extends Agent {
     private Random rand = new Random();
 
     private Map<AID, Double> priceMemory = new HashMap<>();
+    private Map<AID, Double> firstOfferMemory = new HashMap<>();
+    private Map<AID, Double> initialDealerPriceMemory = new HashMap<>();
     private Map<AID, Integer> warrantyMemory = new HashMap<>();
     private Map<AID, Integer> maxWarrantyThresholds = new HashMap<>();
 
@@ -86,10 +90,12 @@ public class DealerAgent extends Agent {
                     if (firstOffer >= (minPrice * 0.75)) { 
                         double startingPrice = 120000.0 + (rand.nextInt(5) * 1000);
                         priceMemory.put(buyerAID, startingPrice);
+                        firstOfferMemory.put(buyerAID, firstOffer);
+                        initialDealerPriceMemory.put(buyerAID, startingPrice);
                         
                         // NEW: Randomize starting warranty offer (6 to 18 months)
                         int[] startingWarranties = {6, 12, 18};
-                        int randomStartWarranty = startingWarranties[rand.nextInt(startingWarranties.length)];
+                        int randomStartWarranty = clampWarranty(startingWarranties[rand.nextInt(startingWarranties.length)]);
                         warrantyMemory.put(buyerAID, randomStartWarranty); 
 
                         // NEW: Randomize individual max threshold (18 to 36 months)
@@ -103,7 +109,7 @@ public class DealerAgent extends Agent {
                         myAgent.send(approved);
                         
                         // Round 0 Baseline Plotted Before Negotiation Starts
-                        MainDashboardFX.getInstance().updateAnalytics(buyerName, getLocalName(), myCarModel, 0, firstOffer, startingPrice, 30, 12);
+                        MainDashboardFX.getInstance().updateAnalytics(buyerName, getLocalName(), myCarModel, 0, firstOffer, startingPrice, 30, randomStartWarranty);
                         
                         initiateNegotiation(buyerAID, 1);
                     } else {
@@ -130,7 +136,17 @@ public class DealerAgent extends Agent {
         cfp.setOntology(AuctionOntology.getInstance().getName());
 
         double currentPrice = priceMemory.get(buyer);
-        int currentWarranty = warrantyMemory.get(buyer);
+        int currentWarranty = clampWarranty(warrantyMemory.get(buyer));
+        int roundForPrediction = Math.max(0, round - 1);
+        String inferredStrategy = "Inferred " + NegotiationPredictor.inferDealerStrategy(
+                roundForPrediction,
+                initialDealerPriceMemory.getOrDefault(buyer, currentPrice),
+                currentPrice,
+                firstOfferMemory.getOrDefault(buyer, currentPrice),
+                firstOfferMemory.getOrDefault(buyer, currentPrice)
+        );
+        cfp.addUserDefinedParameter("negotiation-round", String.valueOf(round));
+        cfp.addUserDefinedParameter("dealer-strategy", inferredStrategy);
         
         CarOffer initialOffer = new CarOffer();
         initialOffer.setCarModel(myCarModel);
@@ -162,12 +178,12 @@ public class DealerAgent extends Agent {
                         Action action = (Action) myAgent.getContentManager().extractContent(reply);
                         CarOffer offer = (CarOffer) action.getAction();
                         buyerOffer = offer.getPrice();
-                        buyerWarrantyReq = offer.getWarranty();
+                        buyerWarrantyReq = clampWarranty(offer.getWarranty());
                     } catch (Exception ex) { ex.printStackTrace(); }
                     
                     double myPrice = priceMemory.get(responder);
-                    int myWarranty = warrantyMemory.get(responder);
-                    int myMaxWarranty = maxWarrantyThresholds.get(responder);
+                    int myWarranty = clampWarranty(warrantyMemory.get(responder));
+                    int myMaxWarranty = clampWarranty(maxWarrantyThresholds.get(responder));
 
                     if (buyerOffer >= minPrice && buyerWarrantyReq <= myMaxWarranty) {
                         
@@ -215,15 +231,30 @@ public class DealerAgent extends Agent {
                         if (myPrice < minPrice) myPrice = Math.round(minPrice);
 
                         if (buyerWarrantyReq > myWarranty) {
-                            int extraMonths = buyerWarrantyReq - myWarranty;
-                            double warrantySurcharge = extraMonths * 500.0;
-                            myPrice += warrantySurcharge;
-                            myWarranty = buyerWarrantyReq;
-                            MainDashboardFX.getInstance().log(getLocalName(), "Added RM" + (int)warrantySurcharge + " premium to cover the " + buyerWarrantyReq + "mo warranty demand.");
+                            int oldWarranty = myWarranty;
+                            int targetWarranty = Math.min(buyerWarrantyReq, myMaxWarranty);
+                            int step = (buyerWarrantyReq - myWarranty) > 8 ? 4 : 2;
+                            myWarranty = clampWarranty(Math.min(myWarranty + step, targetWarranty));
+                            int addedMonths = Math.max(0, myWarranty - oldWarranty);
+                            if (addedMonths > 0) {
+                                double warrantySurcharge = addedMonths * 500.0;
+                                myPrice += warrantySurcharge;
+                                MainDashboardFX.getInstance().log(getLocalName(), String.format(
+                                        "Adjusted warranty from %dmo to %dmo toward buyer request of %dmo. Added RM%d for %d extra month(s).",
+                                        oldWarranty, myWarranty, buyerWarrantyReq, (int) warrantySurcharge, addedMonths));
+                            }
+                            if (buyerWarrantyReq > myMaxWarranty && myWarranty == myMaxWarranty) {
+                                MainDashboardFX.getInstance().log(getLocalName(), "Capped warranty at dealer maximum of " + myMaxWarranty + "mo.");
+                            }
+                        } else if (buyerWarrantyReq < myWarranty) {
+                            MainDashboardFX.getInstance().log(getLocalName(), String.format(
+                                    "Warranty already satisfies buyer request (%dmo offered vs %dmo requested). Focusing on price.",
+                                    myWarranty, buyerWarrantyReq));
                         } else {
-                            myWarranty += 2;
+                            MainDashboardFX.getInstance().log(getLocalName(), "Warranty aligned at " + myWarranty + "mo. Focusing on price.");
                         }
 
+                        myWarranty = clampWarranty(myWarranty);
                         priceMemory.put(responder, myPrice);
                         warrantyMemory.put(responder, myWarranty);
 
@@ -254,5 +285,9 @@ public class DealerAgent extends Agent {
                 }
             }
         });
+    }
+
+    private int clampWarranty(int months) {
+        return Math.max(0, Math.min(72, months));
     }
 }

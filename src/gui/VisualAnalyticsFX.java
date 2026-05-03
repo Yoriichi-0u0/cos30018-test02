@@ -8,6 +8,7 @@ import javafx.scene.Node;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
+import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Tab;
 import javafx.scene.control.TabPane;
 import javafx.scene.control.TableColumn;
@@ -32,6 +33,9 @@ public class VisualAnalyticsFX extends VBox {
     private TabPane chartsContainer;
     private Map<String, LineChart<Number, Number>> activeCharts = new HashMap<>();
     private Map<String, XYChart.Series<Number, Number>[]> activeSeries = new HashMap<>();
+    private Map<String, NumberAxis> priceAxes = new HashMap<>();
+    private Map<String, Double> chartMinPrices = new HashMap<>();
+    private Map<String, Double> chartMaxPrices = new HashMap<>();
     private Map<String, NegotiationSnapshot> negotiationSnapshots = new HashMap<>();
 
     private BarChart<String, Number> marketChart;
@@ -100,7 +104,9 @@ public class VisualAnalyticsFX extends VBox {
     private VBox createPredictionPanel() {
         VBox panel = new VBox(8);
         panel.setPadding(new Insets(12));
-        panel.setMinHeight(240);
+        panel.setMinHeight(170);
+        panel.setPrefHeight(235);
+        panel.setMaxHeight(250);
         panel.setStyle("-fx-background-color: #202027; -fx-border-color: #3b3b4a; -fx-border-radius: 8px; -fx-background-radius: 8px;");
 
         Label title = new Label("Prediction Advisor");
@@ -120,6 +126,7 @@ public class VisualAnalyticsFX extends VBox {
         GridPane grid = new GridPane();
         grid.setHgap(10);
         grid.setVgap(4);
+        grid.setPadding(new Insets(2, 6, 2, 0));
         addPredictionRow(grid, 0, "Buyer", "buyer");
         addPredictionRow(grid, 1, "Dealer", "dealer");
         addPredictionRow(grid, 2, "Vehicle", "vehicle");
@@ -132,7 +139,15 @@ public class VisualAnalyticsFX extends VBox {
         addPredictionRow(grid, 9, "Recommended dealer", "recommendedDealer");
         addPredictionRow(grid, 10, "Strategy", "strategy");
 
-        panel.getChildren().addAll(title, predictionSelector, predictionHintLabel, grid);
+        ScrollPane predictionRowsScroll = new ScrollPane(grid);
+        predictionRowsScroll.setFitToWidth(true);
+        predictionRowsScroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        predictionRowsScroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+        predictionRowsScroll.setPrefViewportHeight(125);
+        predictionRowsScroll.setMaxHeight(140);
+        predictionRowsScroll.setStyle("-fx-background-color: transparent; -fx-background: transparent; -fx-control-inner-background: #202027;");
+
+        panel.getChildren().addAll(title, predictionSelector, predictionHintLabel, predictionRowsScroll);
         return panel;
     }
 
@@ -250,11 +265,10 @@ public class VisualAnalyticsFX extends VBox {
         NumberAxis yAxis = new NumberAxis();
         yAxis.setLabel("Price (RM)");
         yAxis.setTickLabelFill(javafx.scene.paint.Color.web("#a0a0ab"));
-
         yAxis.setAutoRanging(false);
-        yAxis.setLowerBound(90000);  
-        yAxis.setUpperBound(135000); 
-        yAxis.setTickUnit(5000);     
+        yAxis.setLowerBound(80000);
+        yAxis.setUpperBound(140000);
+        yAxis.setTickUnit(10000);
 
         LineChart<Number, Number> chart = new LineChart<>(xAxis, yAxis);
         chart.setTitle(title);
@@ -328,6 +342,7 @@ public class VisualAnalyticsFX extends VBox {
                 
                 activeCharts.put(sessionKey, newChart);
                 activeSeries.put(sessionKey, new XYChart.Series[]{bSeries, dSeries});
+                priceAxes.put(sessionKey, (NumberAxis) newChart.getYAxis());
                 
                 Tab newTab = new Tab(sessionKey, newChart);
                 newTab.setStyle("-fx-background-color: #2a2a35; -fx-text-base-color: white;");
@@ -356,9 +371,50 @@ public class VisualAnalyticsFX extends VBox {
             seriesPair[0].getData().add(bData);
             seriesPair[1].getData().add(dData);
 
+            updatePriceAxis(sessionKey, buyerOffer, dealerAsk);
             updatePredictionSnapshot(sessionKey, buyer, dealer, carModel, round, buyerOffer, dealerAsk, buyerWarranty, dealerWarranty, isDeal);
             applyWidgetAesthetic(activeCharts.get(sessionKey));
         });
+    }
+
+    private void updatePriceAxis(String sessionKey, double buyerOffer, double dealerAsk) {
+        NumberAxis yAxis = priceAxes.get(sessionKey);
+        if (yAxis == null) {
+            return;
+        }
+
+        double minPrice = Math.min(buyerOffer, dealerAsk);
+        double maxPrice = Math.max(buyerOffer, dealerAsk);
+        chartMinPrices.merge(sessionKey, minPrice, Math::min);
+        chartMaxPrices.merge(sessionKey, maxPrice, Math::max);
+
+        double chartMin = chartMinPrices.get(sessionKey);
+        double chartMax = chartMaxPrices.get(sessionKey);
+        double range = Math.max(1000.0, chartMax - chartMin);
+        double padding = Math.max(3000.0, range * 0.14);
+        double tickUnit = calculateTickUnit(range + (padding * 2.0));
+        double lower = Math.max(0.0, Math.floor((chartMin - padding) / tickUnit) * tickUnit);
+        double upper = Math.ceil((chartMax + padding) / tickUnit) * tickUnit;
+
+        if (upper <= lower) {
+            upper = lower + tickUnit;
+        }
+        yAxis.setLowerBound(lower);
+        yAxis.setUpperBound(upper);
+        yAxis.setTickUnit(tickUnit);
+    }
+
+    private double calculateTickUnit(double range) {
+        if (range <= 15000) {
+            return 2500;
+        }
+        if (range <= 35000) {
+            return 5000;
+        }
+        if (range <= 80000) {
+            return 10000;
+        }
+        return 20000;
     }
 
     private void styleDataPoint(XYChart.Data<Number, Number> data, String colorHex, String label) {
@@ -600,6 +656,9 @@ public class VisualAnalyticsFX extends VBox {
             chartsContainer.getTabs().clear();
             activeCharts.clear();
             activeSeries.clear();
+            priceAxes.clear();
+            chartMinPrices.clear();
+            chartMaxPrices.clear();
             negotiationSnapshots.clear();
             
             ledgerTable.getItems().clear();
