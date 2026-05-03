@@ -8,7 +8,6 @@ import jade.core.behaviours.Behaviour;
 import jade.core.behaviours.CyclicBehaviour;
 import jade.domain.DFService;
 import jade.domain.FIPAAgentManagement.DFAgentDescription;
-import jade.domain.FIPAAgentManagement.FailureException;
 import jade.domain.FIPAAgentManagement.ServiceDescription;
 import jade.domain.FIPANames;
 import jade.lang.acl.ACLMessage;
@@ -40,7 +39,6 @@ private Map<AID, Integer> warrantyMemory = new HashMap<>();
 private Map<AID, Integer> minWarrantyThresholds = new HashMap<>();
 
 private boolean lockedIn = false;
-private String targetCar = "";
 
 @Override
 protected void setup() {
@@ -63,9 +61,6 @@ protected void setup() {
     Object[] args = getArguments();
     if (args != null && args.length > 0) {
         isManualMode = Boolean.parseBoolean(args[0].toString());
-        if (args.length > 1) {
-            maxBudget = parseDoubleOrFallback(args[1].toString(), maxBudget);
-        }
     }
 
     // 1. Buyer picks a car they want to buy
@@ -76,14 +71,14 @@ protected void setup() {
         "2018 Mercedes C200", 
         "2020 Ford Ranger Wildtrak"
     };
-    targetCar = possibleCars[rand.nextInt(possibleCars.length)];
-    MainDashboardFX.getInstance().log(getLocalName(), String.format("Requested %s with budget RM%,.2f.", targetCar, maxBudget));
+    String targetCar = possibleCars[rand.nextInt(possibleCars.length)];
+    MainDashboardFX.getInstance().log(getLocalName(), String.format("Asking Broker for ANY car near RM %,.2f budget", maxBudget));
 
     // 2. Ask the Broker who is selling it
     ACLMessage request = new ACLMessage(ACLMessage.REQUEST);
     request.addReceiver(new AID("Broker", AID.ISLOCALNAME));
     request.setOntology("find-dealers");
-    request.setContent(targetCar + "|" + maxBudget);
+    request.setContent(String.valueOf(maxBudget)); 
     send(request);
 
     // 3. Wait for the Broker's reply to get the shortlist
@@ -121,14 +116,11 @@ protected void setup() {
                     shortlist.setOntology("shortlist");
                     shortlist.setContent(shortlistContent.toString()); 
                     myAgent.send(shortlist);
-                    MainDashboardFX.getInstance().log(getLocalName(), "Shortlisted " + dealerNames.length + " dealer(s) for " + targetCar + ".");
+                    MainDashboardFX.getInstance().log(getLocalName(), "Shortlisted " + dealerNames.length + " dealers within budget.");
                     
                     setupNegotiationResponder();
                 } else {
-                    MainDashboardFX.getInstance().log(getLocalName(), "Broker found no dealers for " + targetCar + " within budget.");
-                    if (isManualMode) {
-                        ManualUIFX.showNoMatchWindow(getLocalName(), maxBudget);
-                    }
+                    MainDashboardFX.getInstance().log(getLocalName(), "Broker said no cars are available within budget.");
                 }
                 done = true;
             } else {
@@ -169,7 +161,7 @@ private void setupNegotiationResponder() {
 
                     // NEW ONTOLOGY EXTRACTION
                     String dealerCar = "Unknown";
-                    double dealerPrice = 0.0;
+                    float dealerPrice = 0.0f;
                     int dealerWarranty = 0;
 
                     try {
@@ -185,14 +177,8 @@ private void setupNegotiationResponder() {
                     MainDashboardFX.getInstance().log(getLocalName(), String.format("[EVALUATING] %s offers %s for RM%.2f (Warranty: %dmo)", 
                             cfp.getSender().getLocalName(), dealerCar, dealerPrice, dealerWarranty));
 
-                    int round = parseIntOrFallback(cfp.getUserDefinedParameter("negotiation-round"), 1);
-                    String strategyLabel = cfp.getUserDefinedParameter("dealer-strategy");
-                    if (strategyLabel == null || strategyLabel.trim().isEmpty()) {
-                        strategyLabel = "Inferred Matcher";
-                    }
-
                     // Spawns the non-blocking window with car model!
-                    ManualUIFX.spawnFloatingWindow(myAgent, cfp, dealerCar, dealerPrice, dealerWarranty, maxBudget, round, strategyLabel);
+                    ManualUIFX.spawnFloatingWindow(myAgent, cfp, dealerCar, dealerPrice, dealerWarranty, maxBudget);
                 } else {
                     block();
                 }
@@ -211,7 +197,7 @@ private void setupNegotiationResponder() {
 
                 // NEW ONTOLOGY EXTRACTION
                 String dealerCar = "Unknown";
-                double dealerPrice = 0.0;
+                float dealerPrice = 0.0f;
                 int dealerWarranty = 0;
 
                 try {
@@ -228,37 +214,29 @@ private void setupNegotiationResponder() {
                         dealer.getLocalName(), dealerCar, dealerPrice, dealerWarranty));
 
                 double myOffer = offerMemory.get(dealer);
-                int myWarranty = clampWarranty(warrantyMemory.getOrDefault(dealer, 24));
-                int myThreshold = clampWarranty(minWarrantyThresholds.getOrDefault(dealer, 12));
-                int dealerWarrantyClamped = clampWarranty(dealerWarranty);
+                int myWarranty = warrantyMemory.get(dealer);
+                int myThreshold = minWarrantyThresholds.get(dealer);
 
-                if (dealerPrice <= maxBudget && dealerWarrantyClamped >= myThreshold) {
+                if (dealerPrice <= maxBudget && dealerWarranty >= myThreshold) {
+                    lockedIn = true; 
                     reply.setPerformative(ACLMessage.PROPOSE);
                     
                     // NEW ONTOLOGY FILL
                     CarOffer finalProposal = new CarOffer();
                     finalProposal.setCarModel(dealerCar);
-                    finalProposal.setPrice(dealerPrice);
-                    finalProposal.setWarranty(dealerWarrantyClamped);
+                    finalProposal.setPrice((float) dealerPrice);
+                    finalProposal.setWarranty(dealerWarranty);
                     Action act = new Action(cfp.getSender(), finalProposal);
                     try {
                         myAgent.getContentManager().fillContent(reply, act);
                     } catch (Exception ex) { ex.printStackTrace(); }
 
-                    MainDashboardFX.getInstance().log(getLocalName(), "[MATCH FOUND] Proposed to buy " + dealer.getLocalName() + "'s " + dealerCar + ". Waiting for dealer confirmation.");
+                    MainDashboardFX.getInstance().log(getLocalName(), "[MATCH FOUND] Buying " + dealer.getLocalName() + "'s " + dealerCar + "!");
                 } else {
                     myOffer += (myOffer * 0.04); 
                     myOffer = Math.round(myOffer);
                     if (myOffer > maxBudget) myOffer = Math.round(maxBudget);
-                    if (dealerWarrantyClamped >= myThreshold) {
-                        myWarranty = dealerWarrantyClamped;
-                        MainDashboardFX.getInstance().log(getLocalName(), "[WARRANTY] Dealer warranty satisfies minimum " + myThreshold + "mo. Focusing counter on price.");
-                    } else {
-                        int oldWarranty = myWarranty;
-                        myWarranty = Math.max(myThreshold, myWarranty - 2);
-                        myWarranty = clampWarranty(myWarranty);
-                        MainDashboardFX.getInstance().log(getLocalName(), String.format("[WARRANTY] Reduced warranty request from %dmo to %dmo, minimum acceptable is %dmo.", oldWarranty, myWarranty, myThreshold));
-                    }
+                    myWarranty -= 2;
                     
                     offerMemory.put(dealer, myOffer);
                     warrantyMemory.put(dealer, myWarranty);
@@ -268,7 +246,7 @@ private void setupNegotiationResponder() {
                     // NEW ONTOLOGY FILL
                     CarOffer counter = new CarOffer();
                     counter.setCarModel(dealerCar);
-                    counter.setPrice(myOffer);
+                    counter.setPrice((float) myOffer);
                     counter.setWarranty(myWarranty);
                     Action act = new Action(cfp.getSender(), counter);
                     try {
@@ -279,37 +257,7 @@ private void setupNegotiationResponder() {
                 }
                 return reply;
             }
-
-            @Override
-            protected ACLMessage handleAcceptProposal(ACLMessage cfp, ACLMessage propose, ACLMessage accept) throws FailureException {
-                lockedIn = true;
-                MainDashboardFX.getInstance().log(getLocalName(), "[CONFIRMED] Dealer accepted proposal from " + cfp.getSender().getLocalName() + ". Buyer is now locked in.");
-                ACLMessage inform = accept.createReply();
-                inform.setPerformative(ACLMessage.INFORM);
-                inform.setContent("purchase-confirmed");
-                return inform;
-            }
         });
-    }
-}
-
-private int clampWarranty(int months) {
-    return Math.max(0, Math.min(72, months));
-}
-
-private int parseIntOrFallback(String value, int fallback) {
-    try {
-        return Integer.parseInt(value);
-    } catch (Exception ex) {
-        return fallback;
-    }
-}
-
-private double parseDoubleOrFallback(String value, double fallback) {
-    try {
-        return Double.parseDouble(value);
-    } catch (Exception ex) {
-        return fallback;
     }
 }
 }

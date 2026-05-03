@@ -10,13 +10,10 @@ import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
-import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
-import javafx.scene.control.ScrollPane;
 import javafx.scene.control.SplitPane;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
-import javafx.scene.paint.Color;
 import javafx.stage.Stage;
 
 import java.util.ArrayList;
@@ -53,54 +50,60 @@ public class MainDashboardFX extends Application {
 
         Button btnStartJade = new Button("1. Start JADE Platform");
         Button btnLaunchSniffer = new Button("2. Start Sniffer");
-        Button btnSpawnScenario = new Button("3. Auto Demo");
+        Button btnSpawnScenario = new Button("3. Auto Spawn (1B, 3D, 5B)");
         Button btnDealer = new Button("4. Spawn Dealer");
         Button btnBuyerAuto = new Button("5. Spawn Buyer");
         Button btnBuyerManual = new Button("6. Manual Nego Platform");
         Button btnResetMarket = new Button("7. Reset Market");
         Button btnReport = new Button("8. Market Report");
 
-        styleButton(btnStartJade, "#2e7d32", "white");
-        styleButton(btnLaunchSniffer, "#6a1b9a", "white");
-        styleButton(btnSpawnScenario, "#00838f", "white");
-        styleButton(btnDealer, "#1565c0", "white");
-        styleButton(btnBuyerAuto, "#e65100", "white");
-        styleButton(btnBuyerManual, "#e65100", "white");
-        styleButton(btnResetMarket, "#c62828", "white");
-        styleButton(btnReport, "#fbc02d", "black");
+        btnStartJade.setStyle("-fx-background-color: #2e7d32; -fx-text-fill: white; -fx-font-weight: bold;"); 
+        btnLaunchSniffer.setStyle("-fx-background-color: #6a1b9a; -fx-text-fill: white; -fx-font-weight: bold;"); 
+        btnSpawnScenario.setStyle("-fx-background-color: #00838f; -fx-text-fill: white; -fx-font-weight: bold;"); 
+        btnDealer.setStyle("-fx-background-color: #1565c0; -fx-text-fill: white; -fx-font-weight: bold;"); 
+        btnBuyerAuto.setStyle("-fx-background-color: #e65100; -fx-text-fill: white; -fx-font-weight: bold;"); 
+        btnBuyerManual.setStyle("-fx-background-color: #e65100; -fx-text-fill: white; -fx-font-weight: bold;"); 
+        btnResetMarket.setStyle("-fx-background-color: #c62828; -fx-text-fill: white; -fx-font-weight: bold;");
+        btnReport.setStyle("-fx-background-color: #fbc02d; -fx-text-fill: black; -fx-font-weight: bold;");
 
         controlBox.getChildren().addAll(btnStartJade, btnLaunchSniffer, btnSpawnScenario, btnDealer, btnBuyerAuto, btnBuyerManual, btnResetMarket, btnReport);
-        ScrollPane controlScroll = new ScrollPane(controlBox);
-        controlScroll.setFitToHeight(true);
-        controlScroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
-        controlScroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
-        controlScroll.setStyle("-fx-background-color: #28282d; -fx-background: #28282d;");
-        root.setTop(controlScroll);
+        root.setTop(controlBox);
 
         // --- Center Area (SplitPane) ---
         logList = new ListView<>();
-        logList.setStyle("-fx-control-inner-background: #1e1e22; -fx-text-fill: #96fa96; -fx-font-family: 'Consolas';");
-        logList.setCellFactory(list -> new ListCell<String>() {
+        logList.setStyle("-fx-control-inner-background: #1e1e22; -fx-font-family: 'Consolas';");
+        
+        // --- NEW: COLORED LOG CELL FACTORY ---
+        logList.setCellFactory(lv -> new javafx.scene.control.ListCell<String>() {
             @Override
             protected void updateItem(String item, boolean empty) {
                 super.updateItem(item, empty);
-                setText(empty || item == null ? "" : item);
-                setTextFill(empty ? Color.TRANSPARENT : Color.web("#96fa96"));
-                setStyle("-fx-background-color: #1e1e22; -fx-font-family: 'Consolas'; -fx-font-size: 12px;");
+                if (empty || item == null) {
+                    setText(null);
+                    setGraphic(null);
+                } else {
+                    setText(item);
+                    if (item.contains("[SYSTEM]")) {
+                        setStyle("-fx-text-fill: #96fa96; -fx-background-color: #1e1e22;"); // Bright Green
+                    } else if (item.contains("[BROKER]")) {
+                        setStyle("-fx-text-fill: #fbc02d; -fx-background-color: #1e1e22;"); // Yellow/Gold
+                    } else if (item.contains("[AutoBuyer_") || item.contains("[ManualBuyer_")) {
+                        setStyle("-fx-text-fill: #ff6b81; -fx-background-color: #1e1e22;"); // Pink
+                    } else if (item.contains("[Dealer_")) {
+                        setStyle("-fx-text-fill: #4daafc; -fx-background-color: #1e1e22;"); // Blue
+                    } else {
+                        setStyle("-fx-text-fill: #a0a0ab; -fx-background-color: #1e1e22;"); // Gray default
+                    }
+                }
             }
         });
+        // -------------------------------------
         
         analyticsPanel = new VisualAnalyticsFX();
-        ScrollPane analyticsScroll = new ScrollPane(analyticsPanel);
-        analyticsScroll.setFitToWidth(true);
-        analyticsScroll.setFitToHeight(true);
-        analyticsScroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
-        analyticsScroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
-        analyticsScroll.setStyle("-fx-background-color: #16161a; -fx-background: #16161a;");
 
         SplitPane splitPane = new SplitPane();
         splitPane.setOrientation(javafx.geometry.Orientation.VERTICAL);
-        splitPane.getItems().addAll(logList, analyticsScroll);
+        splitPane.getItems().addAll(logList, analyticsPanel);
         splitPane.setDividerPositions(0.25); 
 
         root.setCenter(splitPane);
@@ -115,7 +118,20 @@ public class MainDashboardFX extends Application {
         btnResetMarket.setOnAction(e -> resetMarket());
         btnReport.setOnAction(e -> {
             if (agents.BrokerAgent.instance != null) {
-                agents.BrokerAgent.instance.generateReport();
+                String report = agents.BrokerAgent.instance.generateReport();
+                
+                javafx.scene.control.Alert alert = new javafx.scene.control.Alert(javafx.scene.control.Alert.AlertType.INFORMATION);
+                alert.setTitle("Final Market Analytics Report");
+                alert.setHeaderText("Market Summary & Broker Earnings");
+                alert.setContentText(report);
+                
+                // Styling the Alert to match the dark theme
+                alert.getDialogPane().setStyle("-fx-background-color: #2a2a35;");
+                alert.getDialogPane().lookup(".content.label").setStyle("-fx-text-fill: white; -fx-font-family: 'Consolas';");
+                alert.getDialogPane().lookup(".header-panel").setStyle("-fx-background-color: #1565c0;");
+                alert.getDialogPane().lookup(".header-panel .label").setStyle("-fx-text-fill: white; -fx-font-weight: bold;");
+                
+                alert.showAndWait();
             } else {
                 log("SYSTEM", "Broker is offline. Spawn the Broker first!");
             }
@@ -141,12 +157,11 @@ public class MainDashboardFX extends Application {
                     Platform.runLater(() -> spawnAgent("AutoBuyer_" + buyerCounter.getAndIncrement(), "agents.BuyerAgent", new Object[]{"false"}));
                     try { Thread.sleep(300); } catch (Exception ex) {} 
                 }
-                log("SYSTEM", "Auto demo loaded: 1 broker, 3 dealers, and 5 buyers. Dashboard view remains active.");
             }).start();
         });
 
         Scene scene = new Scene(root, 1200, 800);
-        primaryStage.setTitle("COS30018 Broker Exchange - JavaFX");
+        primaryStage.setTitle("Automated Auto Auction - JavaFX");
         primaryStage.setScene(scene);
         primaryStage.show();
     }
@@ -223,14 +238,6 @@ public class MainDashboardFX extends Application {
 
     public void recordSuccessfulDeal(String buyer, String dealer, String carModel, double price, int warranty) {
         analyticsPanel.addDealToLedger(buyer, dealer, carModel, price, warranty);
-    }
-
-    private void styleButton(Button button, String backgroundColor, String textColor) {
-        button.setFocusTraversable(false);
-        button.setMinHeight(34);
-        button.setStyle("-fx-background-color: " + backgroundColor + "; -fx-text-fill: " + textColor + "; "
-                + "-fx-font-weight: bold; -fx-background-radius: 5px; -fx-border-color: transparent; "
-                + "-fx-padding: 7px 10px;");
     }
 
     public static void main(String[] args) {
